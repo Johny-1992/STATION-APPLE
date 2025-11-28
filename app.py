@@ -1,109 +1,82 @@
+# app.py
+import kivy
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
-import pandas as pd
+from calculations import calculate_litres_amounts
 from fpdf import FPDF
+import pandas as pd
 
-POMPES = {
-    "1a": {"carburant": "Essence", "prix": 3830},
-    "1b": {"carburant": "Mazout", "prix": 3200},
-    "2a": {"carburant": "Essence", "prix": 3830},
-    "2b": {"carburant": "Mazout", "prix": 3200},
-    "3a": {"carburant": "Essence", "prix": 3830},
-    "3b": {"carburant": "Mazout", "prix": 3200}
-}
+kivy.require("2.1.0")
 
 class StationAppleApp(App):
+
     def build(self):
-        self.title = "STATION APPLE"
-        self.inputs = {}
+        self.index_start_inputs = {}
+        self.index_end_inputs = {}
+
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
 
-        layout.add_widget(Label(text="STATION APPLE", font_size=22))
+        # Créer les champs pour chaque bec
+        for bec in ["1a","1b","2a","2b","3a","3b"]:
+            row = BoxLayout(orientation='horizontal', size_hint_y=None, height=30)
+            row.add_widget(Label(text=f"{bec} Start:"))
+            start_input = TextInput(multiline=False, input_filter='int')
+            row.add_widget(start_input)
+            self.index_start_inputs[bec] = start_input
 
-        grid = GridLayout(cols=3, spacing=10, size_hint_y=None)
-        grid.bind(minimum_height=grid.setter('height'))
+            row.add_widget(Label(text=f"{bec} End:"))
+            end_input = TextInput(multiline=False, input_filter='int')
+            row.add_widget(end_input)
+            self.index_end_inputs[bec] = end_input
 
-        for bec, info in POMPES.items():
-            grid.add_widget(Label(text=f"{bec} ({info['carburant']})"))
-            self.inputs[f"{bec}_start"] = TextInput(hint_text="Index début", multiline=False)
-            grid.add_widget(self.inputs[f"{bec}_start"])
-            self.inputs[f"{bec}_end"] = TextInput(hint_text="Index fin", multiline=False)
-            grid.add_widget(self.inputs[f"{bec}_end"])
+            layout.add_widget(row)
 
-        layout.add_widget(grid)
-
-        layout.add_widget(Label(text="Prix par litre"))
-
-        self.price_inputs = {}
-        price_grid = GridLayout(cols=2)
-        for bec, info in POMPES.items():
-            price_grid.add_widget(Label(text=f"{bec}"))
-            self.price_inputs[bec] = TextInput(text=str(info["prix"]), multiline=False)
-            price_grid.add_widget(self.price_inputs[bec])
-
-        layout.add_widget(price_grid)
-
-        btn = Button(text="CALCULER")
-        btn.bind(on_press=self.calculer)
+        # Bouton calcul
+        btn = Button(text="Calculer litres / montant", size_hint_y=None, height=50)
+        btn.bind(on_press=self.calculate)
         layout.add_widget(btn)
 
-        self.result_label = Label(text="")
+        # Zone d'affichage
+        self.result_label = Label(text="", halign='left', valign='top')
         layout.add_widget(self.result_label)
 
         return layout
 
-    def calculer(self, instance):
-        total_general = 0
-        lignes = []
+    def calculate(self, instance):
+        index_start = {bec: int(inp.text or 0) for bec, inp in self.index_start_inputs.items()}
+        index_end = {bec: int(inp.text or 0) for bec, inp in self.index_end_inputs.items()}
 
-        for bec, info in POMPES.items():
-            try:
-                debut = int(self.inputs[f"{bec}_start"].text)
-                fin = int(self.inputs[f"{bec}_end"].text)
-                prix = float(self.price_inputs[bec].text)
-                litres = fin - debut
-                total = litres * prix
-                total_general += total
+        results = calculate_litres_amounts(index_start, index_end)
+        text = ""
+        for bec, data in results.items():
+            if bec != "total":
+                text += f"{bec} ({data['fuel']}): {data['litres']} L x {data['montant']/max(data['litres'],1):.0f} FC = {data['montant']} FC\n"
+        text += f"\nTOTAL: {results['total']['litres']} L, Montant: {results['total']['montant']} FC"
+        self.result_label.text = text
 
-                lignes.append({
-                    "Bec": bec,
-                    "Carburant": info["carburant"],
-                    "Litres": litres,
-                    "Prix": prix,
-                    "Total": total
-                })
-            except:
-                pass
+        # Générer PDF
+        self.generate_pdf(results)
 
-        texte = ""
-        for l in lignes:
-            texte += f"{l['Bec']} : {l['Litres']} L x {l['Prix']} = {l['Total']} FC\n"
+        # Générer Excel
+        self.generate_excel(results)
 
-        texte += f"\nTOTAL GÉNÉRAL = {total_general} FC"
-        self.result_label.text = texte
-
-        self.export_pdf(lignes)
-        self.export_excel(lignes)
-
-    def export_pdf(self, data):
+    def generate_pdf(self, results):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="RAPPORT - STATION APPLE", ln=True)
-        pdf.ln(10)
+        pdf.cell(0, 10, "Rapport Station Apple", ln=1)
+        for bec, data in results.items():
+            if bec != "total":
+                pdf.cell(0, 8, f"{bec} ({data['fuel']}): {data['litres']} L, Montant: {data['montant']} FC", ln=1)
+        pdf.cell(0, 8, f"TOTAL: {results['total']['litres']} L, Montant: {results['total']['montant']} FC", ln=1)
+        pdf.output("rapport_station_apple.pdf")
 
-        for d in data:
-            pdf.cell(200, 10, txt=f"{d['Bec']} {d['Carburant']} : {d['Litres']} L = {d['Total']} FC", ln=True)
-
-        pdf.output("rapport_station.pdf")
-
-    def export_excel(self, data):
-        df = pd.DataFrame(data)
-        df.to_excel("rapport_station.xlsx", index=False)
+    def generate_excel(self, results):
+        df = pd.DataFrame.from_dict(results, orient='index')
+        df.to_excel("rapport_station_apple.xlsx")
 
 if __name__ == "__main__":
     StationAppleApp().run()
