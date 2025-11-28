@@ -1,30 +1,31 @@
-from config import PRICES, BECS
+# calculations.py
+from config import PRICES, PUMPS
 
-def calcul_litres(index_debut, index_fin):
-    """Calcule le nombre de litres vendus"""
-    return index_fin - index_debut
-
-def calcul_montant(bec, litres):
-    """Calcule le montant pour un bec donné"""
-    carburant = BECS.get(bec, "essence")  # default essence
-    prix = PRICES[carburant]
-    return litres * prix
-
-def calcul_station(index_dict):
+def calculate_litres_amounts(index_start: dict, index_end: dict):
     """
-    index_dict = {
-        "1a": (6666000, 6666100),
-        "1b": (5555000, 5555100),
-        ...
+    index_start et index_end sont des dictionnaires {bec: valeur_index}
+    Retourne un dictionnaire {bec: {'litres': X, 'montant': Y}}
+    """
+    results = {}
+    total_litres = 0
+    total_amount = 0
+
+    for bec, fuel in PUMPS.items():
+        start = index_start.get(bec, 0)
+        end = index_end.get(bec, 0)
+        litres = max(0, end - start)
+        montant = litres * PRICES[fuel]
+
+        results[bec] = {
+            "fuel": fuel,
+            "litres": litres,
+            "montant": montant
+        }
+        total_litres += litres
+        total_amount += montant
+
+    results["total"] = {
+        "litres": total_litres,
+        "montant": total_amount
     }
-    Retourne un dictionnaire avec litres et montant par bec
-    """
-    result = {}
-    total_global = 0
-    for bec, (debut, fin) in index_dict.items():
-        litres = calcul_litres(debut, fin)
-        montant = calcul_montant(bec, litres)
-        result[bec] = {"litres": litres, "montant": montant}
-        total_global += montant
-    result["total"] = total_global
-    return result
+    return results
